@@ -220,12 +220,16 @@ async function refreshGlobalState() {
 function renderCard(q) {
   const card = document.createElement('div');
   card.className = 'q-card';
+  const hasAnswer = q.answer_text || q.answer_image_url;
   card.innerHTML = `
     <div class="q-thumb"><img loading="lazy" src="${API}${q.image_url}" alt="Question ${q.question_number}"></div>
     <div class="q-card-body">
       <div class="q-card-top">
         <span class="q-number">Q${q.question_number}</span>
-        ${q.marks ? `<span class="q-marks">${q.marks} mark${q.marks === 1 ? '' : 's'}</span>` : ''}
+        <span class="q-card-top-right">
+          ${hasAnswer ? '<span class="q-answer-badge" title="Answer available">✓ answer</span>' : ''}
+          ${q.marks ? `<span class="q-marks">${q.marks} mark${q.marks === 1 ? '' : 's'}</span>` : ''}
+        </span>
       </div>
       <div class="q-source">${q.subject} · ${q.year}</div>
       <div class="q-tags">
@@ -362,6 +366,13 @@ document.getElementById('customTestGenerate').addEventListener('click', async ()
   document.getElementById('customTestSummary').textContent =
     `${questions.length} question${questions.length === 1 ? '' : 's'} match your filters.`;
   renderInto('customTestGallery', questions, 'No questions match these filters. Try widening your selection.');
+
+  const btn = document.getElementById('customAnswerKeyBtn');
+  const panel = document.getElementById('customAnswerKeyPanel');
+  panel.hidden = true;
+  btn.textContent = 'Show answer key';
+  btn.hidden = questions.length === 0;
+  wireAnswerKeyToggle('customAnswerKeyBtn', 'customAnswerKeyPanel', () => questions);
 });
 
 // ==========================================================================
@@ -400,7 +411,64 @@ document.getElementById('mockTestGenerate').addEventListener('click', async () =
 
   renderInto('mockMcGallery', data.multiple_choice, 'No multiple-choice questions available for these filters.');
   renderInto('mockRespGallery', data.response, 'No response questions available for these filters.');
+
+  const mockAnswerKeyPanel = document.getElementById('mockAnswerKeyPanel');
+  mockAnswerKeyPanel.hidden = true;
+  document.getElementById('mockAnswerKeyBtn').textContent = 'Show answer key';
+  wireAnswerKeyToggle('mockAnswerKeyBtn', 'mockAnswerKeyPanel',
+    () => [...data.multiple_choice, ...data.response]);
 });
+
+// ==========================================================================
+// Compiled answer key (shared by Custom Test and Mock Test)
+// ==========================================================================
+
+function buildAnswerKeyHTML(questions) {
+  const mcQs = questions.filter(q => q.section === 1).sort((a, b) => a.question_number - b.question_number);
+  const respQs = questions.filter(q => q.section === 2).sort((a, b) => a.question_number - b.question_number);
+
+  if (mcQs.length === 0 && respQs.length === 0) {
+    return '<p class="empty-state">No questions to show answers for.</p>';
+  }
+
+  let html = '';
+
+  if (mcQs.length > 0) {
+    html += '<h3 class="answer-key-heading">Section I answers</h3>';
+    html += '<div class="answer-key-mc-grid">';
+    mcQs.forEach(q => {
+      html += `<div class="answer-key-mc-item"><span>Q${q.question_number}</span><span class="answer-letter-small">${q.answer_text || '—'}</span></div>`;
+    });
+    html += '</div>';
+  }
+
+  if (respQs.length > 0) {
+    html += '<h3 class="answer-key-heading">Section II answers</h3>';
+    respQs.forEach(q => {
+      html += `<div class="answer-key-response-item">
+        <h4>Question ${q.question_number} — ${q.subject} ${q.year}</h4>
+        ${q.answer_image_url
+          ? `<img src="${API}${q.answer_image_url}" alt="Marking guidelines for Question ${q.question_number}">`
+          : '<p class="answer-key-missing">No marking guidelines available for this question.</p>'}
+      </div>`;
+    });
+  }
+
+  return html;
+}
+
+function wireAnswerKeyToggle(btnId, panelId, getQuestions) {
+  const btn = document.getElementById(btnId);
+  const panel = document.getElementById(panelId);
+  btn.onclick = () => {
+    const revealing = panel.hidden;
+    panel.hidden = !revealing;
+    btn.textContent = revealing ? 'Hide answer key' : 'Show answer key';
+    if (revealing) {
+      panel.innerHTML = buildAnswerKeyHTML(getQuestions());
+    }
+  };
+}
 
 // ==========================================================================
 // Lightbox

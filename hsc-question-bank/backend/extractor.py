@@ -172,6 +172,106 @@ def extract_questions(pdf_path, out_dir, prefix):
 
 
 # --------------------------------------------------------------------------
+# Answer extraction: MC answer key + Section II marking-guideline crops
+# --------------------------------------------------------------------------
+
+def parse_mc_answer_key(pdf_path):
+    """Reads the 'Question / Answer' table on the guidelines' first page(s)
+    -> {question_number: 'A'/'B'/'C'/'D'}."""
+    answers = {}
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages[:3]:  # answer key is always near the front
+            for table in page.extract_tables():
+                for row in table:
+                    if not row or len(row) < 2 or row[0] is None:
+                        continue
+                    qtxt, atxt = row[0].strip(), (row[1] or '').strip()
+                    if qtxt.isdigit() and atxt in ('A', 'B', 'C', 'D'):
+                        answers[int(qtxt)] = atxt
+    return answers
+
+
+def find_guideline_boundaries(pdf_path):
+    """Marking guidelines repeat a bold 'Question N (subpart)' header for
+    EVERY sub-part (unlike the exam paper, which only bolds the first
+    sub-part and uses non-bold '(continued)' for the rest). Font here is
+    Arial-Bold ~13.9pt rather than the exam's Times-Bold ~12pt, so this
+    uses a wider size tolerance instead of reusing find_boundaries()."""
+    boundaries = []
+    with pdfplumber.open(pdf_path) as pdf:
+        page_dims = [(p.width, p.height) for p in pdf.pages]
+        for i, page in enumerate(pdf.pages):
+            words = page.extract_words(extra_attrs=['size', 'fontname'])
+            for idx, w in enumerate(words):
+                if not (w['text'] == 'Question' and 'Bold' in w['fontname'] and w['x0'] < 78):
+                    continue
+                same_line = [x for x in words if abs(x['top'] - w['top']) < 1 and x['x0'] >= w['x0']]
+                num_txt = re.sub(r'\D', '', same_line[1]['text']) if len(same_line) > 1 else ''
+                if not num_txt:
+                    continue
+                boundaries.append({'question': int(num_txt), 'page': i, 'top': w['top']})
+    return boundaries, page_dims
+
+
+def find_mapping_grid_start(pdf_path):
+    with pdfplumber.open(pdf_path) as pdf:
+        for i, page in enumerate(pdf.pages):
+            text = page.extract_text() or ''
+            if 'Mapping Grid' in text:
+                return i, 0
+    return None, None
+
+
+def extract_answer_images(pdf_path, out_dir, prefix):
+    """Crops+stitches each question's FULL marking-guideline explanation
+    (all its sub-parts combined) into one image per top-level question
+    number, the same way extract_questions() does for the exam paper."""
+    boundaries, page_dims = find_guideline_boundaries(pdf_path)
+    if not boundaries:
+        return {}
+
+    # Build one segment per boundary (sub-part), stopping at the next
+    # boundary, the Mapping Grid section (for the very last one), or end
+    # of document.
+    grid_page, grid_top = find_mapping_grid_start(pdf_path)
+    segments_by_boundary = []
+    for idx, b in enumerate(boundaries):
+        start_page, start_top = b['page'], b['top']
+        if idx + 1 < len(boundaries):
+            end_page, end_top = boundaries[idx + 1]['page'], boundaries[idx + 1]['top']
+        elif grid_page is not None:
+            end_page, end_top = grid_page, grid_top
+        else:
+            end_page, end_top = start_page, page_dims[start_page][1]
+
+        segs = []
+        if end_page == start_page:
+            segs.append((start_page, start_top, end_top))
+        else:
+            segs.append((start_page, start_top, page_dims[start_page][1]))
+            for p in range(start_page + 1, end_page):
+                segs.append((p, 0, page_dims[p][1]))
+            if end_top > 0:
+                segs.append((end_page, 0, end_top))
+        segments_by_boundary.append({'question': b['question'], 'segments': segs})
+
+    # Group all sub-part segments belonging to the same top-level question
+    # number together, in document order, into one combined region.
+    grouped = {}
+    order = []
+    for item in segments_by_boundary:
+        q = item['question']
+        if q not in grouped:
+            grouped[q] = []
+            order.append(q)
+        grouped[q].extend(item['segments'])
+
+    regions = [{'question': q, 'section': None, 'segments': grouped[q]} for q in order]
+    saved = crop_and_stitch(regions, convert_from_path(pdf_path, dpi=DPI), out_dir, f"{prefix}_ans")
+    return {r['question']: r['filename'] for r in saved}
+
+
+# --------------------------------------------------------------------------
 # Mapping grid parsing
 # --------------------------------------------------------------------------
 
@@ -253,7 +353,8 @@ def process_paper(exam_pdf_path, guidelines_pdf_path, out_dir, exam_filename=Non
     """Runs the full pipeline and returns a structured result dict ready to
     be persisted by the backend:
       { 'year':..., 'subject':..., 'questions': [ {question, section,
-        filename, marks, content, syllabus_outcomes}, ... ] }
+        filename, marks, content, syllabus_outcomes, answer_text,
+        answer_image}, ... ] }
     """
     year, subject = detect_paper_info(exam_pdf_path, fallback_name=exam_filename)
     prefix = f"{re.sub(r'[^A-Za-z0-9]+', '', subject).lower()}{year}"
@@ -261,14 +362,20 @@ def process_paper(exam_pdf_path, guidelines_pdf_path, out_dir, exam_filename=Non
     questions = extract_questions(exam_pdf_path, out_dir, prefix)
 
     tags_by_q = {}
+    mc_answers = {}
+    answer_images = {}
     if guidelines_pdf_path:
         mapping_entries = parse_mapping_grid(guidelines_pdf_path)
         tags_by_q = aggregate_tags_by_question(mapping_entries)
+        mc_answers = parse_mc_answer_key(guidelines_pdf_path)
+        answer_images = extract_answer_images(guidelines_pdf_path, out_dir, prefix)
 
     for q in questions:
         tags = tags_by_q.get(q['question'], {})
         q['marks'] = tags.get('marks')
         q['content'] = tags.get('content', [])
         q['syllabus_outcomes'] = tags.get('syllabus_outcomes', [])
+        q['answer_text'] = mc_answers.get(q['question']) if q['section'] == 1 else None
+        q['answer_image'] = answer_images.get(q['question']) if q['section'] == 2 else None
 
     return {'year': year, 'subject': subject, 'prefix': prefix, 'questions': questions}

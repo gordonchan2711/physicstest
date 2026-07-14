@@ -150,7 +150,9 @@ function renderPapersStrip() {
   allPapers.forEach(p => {
     const chip = document.createElement('div');
     chip.className = 'paper-chip';
-    chip.innerHTML = `<span>${p.subject} ${p.year} · ${p.question_count}q</span>`;
+    const untagged = !p.guidelines_filename;
+    chip.innerHTML = `<span>${p.subject} ${p.year} · ${p.question_count}q</span>` +
+      (untagged ? '<span class="paper-chip-warning" title="No marking guidelines uploaded — questions have no topic/module tags and won\'t show up in module-filtered views.">no tags</span>' : '');
     const del = document.createElement('button');
     del.textContent = '\u2715';
     del.title = 'Remove this paper';
@@ -414,6 +416,31 @@ function openLightbox(q) {
     Topic: ${topics}<br>
     Syllabus outcomes: ${outcomes}
   `;
+
+  const answerBtn = document.getElementById('answerToggleBtn');
+  const answerPanel = document.getElementById('answerPanel');
+  answerPanel.hidden = true;
+  answerPanel.innerHTML = '';
+  answerBtn.textContent = 'Show answer';
+
+  const hasAnswer = q.answer_text || q.answer_image_url;
+  answerBtn.hidden = !hasAnswer;
+
+  if (hasAnswer) {
+    answerBtn.onclick = () => {
+      const revealing = answerPanel.hidden;
+      answerPanel.hidden = !revealing;
+      answerBtn.textContent = revealing ? 'Hide answer' : 'Show answer';
+      if (revealing && !answerPanel.innerHTML) {
+        if (q.answer_text) {
+          answerPanel.innerHTML = `<div class="answer-panel-mc">Correct answer: <span class="answer-letter">${q.answer_text}</span></div>`;
+        } else if (q.answer_image_url) {
+          answerPanel.innerHTML = `<img src="${API}${q.answer_image_url}" alt="Marking guidelines for Question ${q.question_number}">`;
+        }
+      }
+    };
+  }
+
   document.getElementById('lightbox').hidden = false;
 }
 document.getElementById('lightboxClose').addEventListener('click', () => {

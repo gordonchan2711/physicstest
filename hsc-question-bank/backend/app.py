@@ -99,6 +99,12 @@ def init_db():
             syllabus_outcomes TEXT
         );
     ''')
+    # Migration for DBs created before answers were added.
+    existing_cols = {row[1] for row in conn.execute('PRAGMA table_info(questions)').fetchall()}
+    if 'answer_text' not in existing_cols:
+        conn.execute('ALTER TABLE questions ADD COLUMN answer_text TEXT')
+    if 'answer_image_path' not in existing_cols:
+        conn.execute('ALTER TABLE questions ADD COLUMN answer_image_path TEXT')
     conn.commit()
     conn.close()
 
@@ -148,11 +154,14 @@ def upload():
         for q in result['questions']:
             db.execute(
                 'INSERT INTO questions (id, paper_id, question_number, section, image_path, '
-                'marks, content, syllabus_outcomes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                'marks, content, syllabus_outcomes, answer_text, answer_image_path) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                 (str(uuid.uuid4())[:8], paper_id, q['question'], q['section'],
                  f"{paper_id}/{q['filename']}", q.get('marks'),
                  json.dumps(q.get('content', [])),
-                 json.dumps(q.get('syllabus_outcomes', [])))
+                 json.dumps(q.get('syllabus_outcomes', [])),
+                 q.get('answer_text'),
+                 f"{paper_id}/{q['answer_image']}" if q.get('answer_image') else None)
             )
         db.commit()
 
@@ -241,6 +250,7 @@ def query_questions(subject=None, year=None, paper_id=None, topic=None,
         d['content'] = json.loads(d['content'] or '[]')
         d['syllabus_outcomes'] = json.loads(d['syllabus_outcomes'] or '[]')
         d['image_url'] = f"/static/questions/{d['image_path']}"
+        d['answer_image_url'] = f"/static/questions/{d['answer_image_path']}" if d.get('answer_image_path') else None
         d['modules'] = extract_modules(d['content'])
         if modules and not (set(d['modules']) & set(modules)):
             continue
@@ -354,6 +364,8 @@ def health():
     return jsonify({'status': 'ok'})
 
 
+init_db()
+
+
 if __name__ == '__main__':
-    init_db()
     app.run(debug=True, port=5000)

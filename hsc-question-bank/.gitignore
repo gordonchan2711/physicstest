@@ -1,0 +1,20 @@
+# Data — generated locally, not source
+backend/hsc_bank.db
+backend/static/questions/*
+!backend/static/questions/.gitkeep
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Question Bank — Past Paper Extractor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-shell">
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span class="eyebrow">Past-paper archive</span>
+      <button class="sidebar-hide-btn" id="sidebarHideBtn" title="Hide sidebar" aria-label="Hide sidebar">&laquo;</button>
+    </div>
+
+    <nav class="sidebar-nav">
+      <button class="nav-item" data-view="bank">Question Bank</button>
+      <button class="nav-item" data-view="mcOnly">Multiple Choice Only</button>
+
+      <div class="nav-group">
+        <div class="nav-group-title">By Question Number</div>
+        <select class="nav-select" id="questionNumberSelect">
+          <option value="">Select a question…</option>
+        </select>
+      </div>
+
+      <button class="nav-item" data-view="customTest">Custom Test</button>
+      <button class="nav-item" data-view="mockTest">Mock Test</button>
+    </nav>
+  </aside>
+
+  <button class="sidebar-show-btn" id="sidebarShowBtn" title="Show sidebar" aria-label="Show sidebar" hidden>&raquo;</button>
+
+  <div class="main-column">
+
+    <header class="masthead">
+      <div class="masthead-inner">
+        <h1 id="viewTitle">Question Bank</h1>
+        <div class="masthead-total" id="totalCount">— questions catalogued</div>
+      </div>
+      <div class="cut-line" aria-hidden="true"></div>
+    </header>
+
+    <main>
+
+      <!-- ============ VIEW: Question Bank (upload + full gallery) ============ -->
+      <section class="view" id="view-bank">
+        <section class="upload-section" id="uploadSection">
+          <div class="upload-grid">
+            <div class="dropzone" id="examDrop" data-kind="exam">
+              <div class="dropzone-label">01</div>
+              <p class="dropzone-title">Exam paper</p>
+              <p class="dropzone-hint">Drop the question paper PDF, or click to choose</p>
+              <p class="dropzone-file" id="examFileName"></p>
+              <input type="file" id="examInput" accept="application/pdf" hidden>
+            </div>
+            <div class="dropzone" id="guideDrop" data-kind="guide">
+              <div class="dropzone-label">02</div>
+              <p class="dropzone-title">Marking guidelines <span class="optional">(optional — enables topic tags)</span></p>
+              <p class="dropzone-hint">Drop the marking guidelines PDF, or click to choose</p>
+              <p class="dropzone-file" id="guideFileName"></p>
+              <input type="file" id="guideInput" accept="application/pdf" hidden>
+            </div>
+          </div>
+          <button class="process-btn" id="processBtn" disabled>Extract questions</button>
+          <div class="status-line" id="statusLine"></div>
+        </section>
+
+        <div class="filter-bar">
+          <select id="subjectFilter"><option value="">All subjects</option></select>
+          <select id="yearFilter"><option value="">All years</option></select>
+          <input type="search" id="topicSearch" placeholder="Search topic or syllabus code…">
+          <button class="ghost-btn" id="clearFilters">Clear</button>
+        </div>
+
+        <div class="papers-strip" id="papersStrip"></div>
+
+        <div class="gallery" id="gallery">
+          <p class="empty-state">No questions yet. Upload a past paper above to start building your bank.</p>
+        </div>
+      </section>
+
+      <!-- ============ VIEW: By Question Number ============ -->
+      <section class="view" id="view-byNumber" hidden>
+        <p class="view-subtitle" id="byNumberSubtitle">Every year's version of this question, side by side.</p>
+        <div class="gallery" id="byNumberGallery"></div>
+      </section>
+
+      <!-- ============ VIEW: Multiple Choice Only ============ -->
+      <section class="view" id="view-mcOnly" hidden>
+        <div class="filter-bar">
+          <select id="mcSubjectFilter"><option value="">All subjects</option></select>
+          <select id="mcYearFilter"><option value="">All years</option></select>
+          <input type="search" id="mcTopicSearch" placeholder="Search topic or syllabus code…">
+          <button class="ghost-btn" id="mcClearFilters">Clear</button>
+        </div>
+        <div class="gallery" id="mcGallery"></div>
+      </section>
+
+      <!-- ============ VIEW: Custom Test ============ -->
+      <section class="view" id="view-customTest" hidden>
+        <div class="test-builder">
+          <div class="builder-row">
+            <span class="builder-label">Modules</span>
+            <div class="chip-toggle-group" id="moduleToggles">
+              <button class="chip-toggle" data-module="5">Mod 5</button>
+              <button class="chip-toggle" data-module="6">Mod 6</button>
+              <button class="chip-toggle" data-module="7">Mod 7</button>
+              <button class="chip-toggle" data-module="8">Mod 8</button>
+            </div>
+          </div>
+          <div class="builder-row">
+            <span class="builder-label">Question type</span>
+            <div class="chip-toggle-group" id="typeToggles" data-exclusive="true">
+              <button class="chip-toggle active" data-type="">All</button>
+              <button class="chip-toggle" data-type="mc">Multiple choice only</button>
+              <button class="chip-toggle" data-type="response">Response only</button>
+            </div>
+          </div>
+          <div class="builder-row">
+            <span class="builder-label">Subject / year</span>
+            <select id="customSubjectFilter"><option value="">All subjects</option></select>
+            <select id="customYearFilter"><option value="">All years</option></select>
+          </div>
+          <button class="process-btn" id="customTestGenerate">Build test</button>
+        </div>
+        <div class="test-result-summary" id="customTestSummary"></div>
+        <div class="gallery" id="customTestGallery"></div>
+      </section>
+
+      <!-- ============ VIEW: Mock Test ============ -->
+      <section class="view" id="view-mockTest" hidden>
+        <div class="test-builder">
+          <div class="builder-row">
+            <span class="builder-label">Subject</span>
+            <select id="mockSubjectFilter"><option value="">All subjects</option></select>
+          </div>
+          <div class="builder-row">
+            <span class="builder-label">Modules</span>
+            <div class="chip-toggle-group" id="mockModuleToggles">
+              <button class="chip-toggle" data-module="5">Mod 5</button>
+              <button class="chip-toggle" data-module="6">Mod 6</button>
+              <button class="chip-toggle" data-module="7">Mod 7</button>
+              <button class="chip-toggle" data-module="8">Mod 8</button>
+            </div>
+            <span class="builder-hint">(none selected = all modules)</span>
+          </div>
+          <button class="process-btn" id="mockTestGenerate">Generate mock test</button>
+        </div>
+
+        <div id="mockTestResult" hidden>
+          <h2 class="section-heading">Section I — Multiple Choice <span class="section-count" id="mcSectionCount"></span></h2>
+          <div class="gallery" id="mockMcGallery"></div>
+
+          <h2 class="section-heading">Section II — Response <span class="section-count" id="respSectionCount"></span></h2>
+          <div class="gallery" id="mockRespGallery"></div>
+        </div>
+        <p class="empty-state" id="mockEmptyState">Set your filters (optional) and generate a randomised mock exam from your question bank.</p>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox" hidden>
+  <div class="lightbox-inner">
+    <button class="lightbox-close" id="lightboxClose" aria-label="Close">&times;</button>
+    <img id="lightboxImg" alt="">
+    <div class="lightbox-meta" id="lightboxMeta"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

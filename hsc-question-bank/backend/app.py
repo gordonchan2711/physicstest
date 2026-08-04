@@ -2,17 +2,20 @@
 app.py — Flask backend for the HSC question bank app.
 
 Endpoints:
-  POST   /api/upload            multipart: exam_pdf (required), guidelines_pdf (optional)
-  GET    /api/papers             list all uploaded papers
-  DELETE /api/papers/<id>        remove a paper and its questions/images
-  GET    /api/questions          list questions, filterable by ?subject=&year=&paper_id=
-                                  &q=(topic search)&type=(mc|response)&modules=5,6
-  GET    /api/question-numbers   distinct question numbers in the bank (for the
-                                  sidebar's "by question number" list), optional ?subject=
-  GET    /api/custom-test        same filters as /api/questions — used by the
-                                  Custom Test builder view
-  GET    /api/mock-test          random mock exam: ?mc=20&response=16&subject=&modules=5,6
-  GET    /static/questions/...   serves extracted question images
+  POST   /api/upload             multipart: exam_pdf (required), guidelines_pdf (optional)
+  GET    /api/papers              list all uploaded papers
+  DELETE /api/papers/<id>         remove a paper and its questions/images
+  GET    /api/questions           list questions, filterable by ?subject=&year=&paper_id=
+                                   &q=(topic search)&type=(mc|response)&modules=5,6
+  GET    /api/question-numbers    distinct question numbers in the bank (for the
+                                   sidebar's "by question number" list), optional ?subject=
+  GET    /api/custom-test         same filters as /api/questions — used by the
+                                   Custom Test builder view
+  GET    /api/mock-test           random mock exam: ?mc=20&response=16&subject=&modules=5,6
+  GET    /api/sample-papers       list PDF pairs bundled in backend/sample_papers/
+  POST   /api/load-sample         {"exam_filename": "..."} — extracts a bundled sample
+                                   into the question bank, same as a manual upload
+  GET    /static/questions/...    serves extracted question images
 
 Run locally:
     pip install -r requirements.txt
@@ -113,6 +116,51 @@ def init_db():
 # Routes
 # --------------------------------------------------------------------------
 
+def _persist_paper(exam_path, guidelines_path, exam_filename, guidelines_filename):
+    """Runs extraction on already-on-disk PDFs and persists the result to
+    the DB. Shared by /api/upload (files just saved from a request) and
+    /api/load-sample (files that already live in backend/sample_papers/)."""
+    paper_id = str(uuid.uuid4())[:8]
+    paper_out_dir = os.path.join(QUESTIONS_DIR, paper_id)
+    os.makedirs(paper_out_dir, exist_ok=True)
+
+    try:
+        result = extractor.process_paper(
+            exam_path, guidelines_path, paper_out_dir, exam_filename=exam_filename,
+        )
+    except Exception as e:
+        shutil.rmtree(paper_out_dir, ignore_errors=True)
+        raise
+
+    db = get_db()
+    db.execute(
+        'INSERT INTO papers (id, subject, year, exam_filename, guidelines_filename, uploaded_at) '
+        'VALUES (?, ?, ?, ?, ?, ?)',
+        (paper_id, result['subject'], result['year'], exam_filename,
+         guidelines_filename, datetime.now(timezone.utc).isoformat())
+    )
+    for q in result['questions']:
+        db.execute(
+            'INSERT INTO questions (id, paper_id, question_number, section, image_path, '
+            'marks, content, syllabus_outcomes, answer_text, answer_image_path) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (str(uuid.uuid4())[:8], paper_id, q['question'], q['section'],
+             f"{paper_id}/{q['filename']}", q.get('marks'),
+             json.dumps(q.get('content', [])),
+             json.dumps(q.get('syllabus_outcomes', [])),
+             q.get('answer_text'),
+             f"{paper_id}/{q['answer_image']}" if q.get('answer_image') else None)
+        )
+    db.commit()
+
+    return {
+        'paper_id': paper_id,
+        'subject': result['subject'],
+        'year': result['year'],
+        'question_count': len(result['questions']),
+    }
+
+
 @app.route('/api/upload', methods=['POST'])
 def upload():
     exam_file = request.files.get('exam_pdf')
@@ -120,7 +168,6 @@ def upload():
     if not exam_file:
         return jsonify({'error': 'exam_pdf file is required'}), 400
 
-    paper_id = str(uuid.uuid4())[:8]
     tmp_dir = tempfile.mkdtemp(prefix='hsc_upload_')
     try:
         exam_path = os.path.join(tmp_dir, exam_file.filename)
@@ -131,48 +178,96 @@ def upload():
             guidelines_path = os.path.join(tmp_dir, guidelines_file.filename)
             guidelines_file.save(guidelines_path)
 
-        paper_out_dir = os.path.join(QUESTIONS_DIR, paper_id)
-        os.makedirs(paper_out_dir, exist_ok=True)
-
         try:
-            result = extractor.process_paper(
-                exam_path, guidelines_path, paper_out_dir,
-                exam_filename=exam_file.filename,
+            info = _persist_paper(
+                exam_path, guidelines_path,
+                exam_file.filename,
+                guidelines_file.filename if guidelines_file else None,
             )
         except Exception as e:
-            shutil.rmtree(paper_out_dir, ignore_errors=True)
             return jsonify({'error': f'Extraction failed: {e}'}), 500
 
-        db = get_db()
-        db.execute(
-            'INSERT INTO papers (id, subject, year, exam_filename, guidelines_filename, uploaded_at) '
-            'VALUES (?, ?, ?, ?, ?, ?)',
-            (paper_id, result['subject'], result['year'], exam_file.filename,
-             guidelines_file.filename if guidelines_file else None,
-             datetime.now(timezone.utc).isoformat())
-        )
-        for q in result['questions']:
-            db.execute(
-                'INSERT INTO questions (id, paper_id, question_number, section, image_path, '
-                'marks, content, syllabus_outcomes, answer_text, answer_image_path) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                (str(uuid.uuid4())[:8], paper_id, q['question'], q['section'],
-                 f"{paper_id}/{q['filename']}", q.get('marks'),
-                 json.dumps(q.get('content', [])),
-                 json.dumps(q.get('syllabus_outcomes', [])),
-                 q.get('answer_text'),
-                 f"{paper_id}/{q['answer_image']}" if q.get('answer_image') else None)
-            )
-        db.commit()
-
-        return jsonify({
-            'paper_id': paper_id,
-            'subject': result['subject'],
-            'year': result['year'],
-            'question_count': len(result['questions']),
-        })
+        return jsonify(info)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------
+# Bundled sample papers — lets the app ship with ready-to-use papers so
+# people don't have to source their own PDFs before trying it out. Drop
+# PDF pairs into backend/sample_papers/: an exam file "name.pdf" is paired
+# automatically with "name-mg.pdf" or "name-guidelines.pdf" if present.
+# --------------------------------------------------------------------------
+
+SAMPLE_PAPERS_DIR = os.path.join(BASE_DIR, 'sample_papers')
+
+
+def scan_sample_pairs():
+    """Returns [(exam_filename, guidelines_filename_or_None), ...]."""
+    if not os.path.isdir(SAMPLE_PAPERS_DIR):
+        return []
+    files = sorted(f for f in os.listdir(SAMPLE_PAPERS_DIR) if f.lower().endswith('.pdf'))
+    suffixes = ('-mg.pdf', '-guidelines.pdf', '-marking-guidelines.pdf')
+    guideline_files = {f for f in files if f.lower().endswith(suffixes)}
+    exam_files = [f for f in files if f not in guideline_files]
+
+    pairs = []
+    for exam_f in exam_files:
+        base = exam_f[:-4]  # strip ".pdf"
+        match = next(
+            (g for g in guideline_files
+             if g.lower() in {f"{base.lower()}{suf}" for suf in suffixes}),
+            None
+        )
+        pairs.append((exam_f, match))
+    return pairs
+
+
+@app.route('/api/sample-papers', methods=['GET'])
+def list_sample_papers():
+    db = get_db()
+    already = {row[0] for row in db.execute(
+        'SELECT exam_filename FROM papers WHERE exam_filename IS NOT NULL'
+    ).fetchall()}
+    return jsonify([
+        {
+            'exam_filename': exam_f,
+            'guidelines_filename': guide_f,
+            'has_guidelines': guide_f is not None,
+            'already_loaded': exam_f in already,
+        }
+        for exam_f, guide_f in scan_sample_pairs()
+    ])
+
+
+@app.route('/api/load-sample', methods=['POST'])
+def load_sample():
+    data = request.get_json(silent=True) or {}
+    exam_filename = data.get('exam_filename')
+    if not exam_filename:
+        return jsonify({'error': 'exam_filename is required'}), 400
+
+    db = get_db()
+    already = db.execute(
+        'SELECT id FROM papers WHERE exam_filename = ?', (exam_filename,)
+    ).fetchone()
+    if already:
+        return jsonify({'error': f'{exam_filename} is already loaded in your question bank'}), 409
+
+    match = next((p for p in scan_sample_pairs() if p[0] == exam_filename), None)
+    if not match:
+        return jsonify({'error': f'No bundled sample named {exam_filename}'}), 404
+
+    exam_f, guide_f = match
+    exam_path = os.path.join(SAMPLE_PAPERS_DIR, exam_f)
+    guidelines_path = os.path.join(SAMPLE_PAPERS_DIR, guide_f) if guide_f else None
+
+    try:
+        info = _persist_paper(exam_path, guidelines_path, exam_f, guide_f)
+    except Exception as e:
+        return jsonify({'error': f'Extraction failed: {e}'}), 500
+
+    return jsonify(info)
 
 
 @app.route('/api/papers', methods=['GET'])

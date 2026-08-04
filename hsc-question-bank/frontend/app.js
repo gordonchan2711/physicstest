@@ -209,8 +209,68 @@ document.getElementById('questionNumberSelect').addEventListener('change', e => 
 async function refreshGlobalState() {
   await loadPapers();
   await loadQuestionNumberSidebar();
+  await loadSamplePapers();
   if (currentView === 'bank') await loadQuestions();
   if (currentView === 'mcOnly') await loadMcOnly();
+}
+
+// ==========================================================================
+// Bundled sample papers
+// ==========================================================================
+
+async function loadSamplePapers() {
+  const res = await fetch(`${API}/api/sample-papers`);
+  const samples = await res.json();
+  const section = document.getElementById('samplesSection');
+  const list = document.getElementById('samplesList');
+
+  if (samples.length === 0) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  list.innerHTML = '';
+
+  samples.forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'sample-card';
+    card.innerHTML = `
+      <div>
+        <span class="sample-card-name">${s.exam_filename}</span>
+        <span class="sample-card-meta">${s.has_guidelines ? 'includes marking guidelines' : 'exam only'}</span>
+      </div>
+    `;
+    const btn = document.createElement('button');
+    btn.className = 'sample-load-btn';
+    if (s.already_loaded) {
+      btn.textContent = 'Loaded';
+      btn.disabled = true;
+    } else {
+      btn.textContent = 'Load';
+      btn.addEventListener('click', () => loadSample(s.exam_filename, btn));
+    }
+    card.appendChild(btn);
+    list.appendChild(card);
+  });
+}
+
+async function loadSample(examFilename, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Loading…';
+  try {
+    const res = await fetch(`${API}/api/load-sample`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ exam_filename: examFilename }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to load sample');
+    await refreshGlobalState();
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'Load';
+    alert(`Couldn't load ${examFilename}: ${err.message}`);
+  }
 }
 
 // ==========================================================================

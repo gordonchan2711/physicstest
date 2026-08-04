@@ -280,6 +280,57 @@ main {
 
 .upload-section { margin-bottom: 56px; }
 
+.samples-section { margin-bottom: 40px; }
+.samples-heading {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin: 0 0 12px;
+}
+.samples-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.sample-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 10px 14px;
+}
+.sample-card-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+}
+.sample-card-meta {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-soft);
+  display: block;
+  margin-top: 2px;
+}
+.sample-load-btn {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 12.5px;
+  background: var(--navy);
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  padding: 7px 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sample-load-btn:hover:not(:disabled) { background: #16233a; }
+.sample-load-btn:disabled {
+  background: var(--rule);
+  color: var(--ink-soft);
+  cursor: default;
+}
+
 .upload-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

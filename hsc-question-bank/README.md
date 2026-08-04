@@ -64,6 +64,20 @@ A few things to set up on whatever platform you use:
 - If you outgrow SQLite (many concurrent uploads), swap it for Postgres —
   the queries in `app.py` are plain SQL, so the migration is mechanical.
 
+## Bundled sample papers
+
+`backend/sample_papers/` ships with a real paper pair (2020 HSC Physics) so
+the app has something to show immediately — no upload required. In the
+Question Bank view, click **Load** on the sample card instead of dragging
+in files.
+
+To add more bundled samples, just drop more PDF pairs into that folder.
+Naming convention: an exam paper `name.pdf` is automatically paired with
+`name-mg.pdf` (or `name-guidelines.pdf` / `name-marking-guidelines.pdf`) if
+present in the same folder. An exam file with no matching guidelines file
+still shows up as loadable, just without answers/topic tags — same as any
+other exam-only upload.
+
 ## Known limitations / things to spot-check on a new subject
 
 - Boundary detection relies on the standard NESA exam template (bold text,
